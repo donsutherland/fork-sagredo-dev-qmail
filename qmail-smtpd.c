@@ -1,4 +1,5 @@
 #include <stdio.h>
+
 #include <stdlib.h>
 #include "sig.h"
 #include "readwrite.h"
@@ -68,6 +69,12 @@ void spfauthenticated();
 #define BMCHECK_BHELO 4
 #define BMCHECK_BHELONR 5
 
+extern void realrcptto_init();
+extern void realrcptto_start();
+extern int realrcptto();
+extern int realrcptto_deny();
+
+
 int spp_val;
 
 unsigned int databytes = 0;
@@ -127,6 +134,8 @@ void die_alarm() { qlogenvelope("rejected","alarmtimeout","","451"); out("451 ti
 void die_nomem() { qlogenvelope("rejected","out_of_memory","","421"); out("421 out of memory (#4.3.0)\r\n"); flush(); _exit(1); }
 void die_control() { qlogenvelope("rejected","cannot_read_controls","","421"); out("421 unable to read controls (#4.3.0)\r\n"); flush(); _exit(1); }
 void die_ipme() { qlogenvelope("rejected","unknown_ip_me","","553"); out("421 unable to figure out my IP addresses (#4.3.0)\r\n"); flush(); _exit(1); }
+void die_cdb() { out("421 unable to read cdb user database (#4.3.0)\r\n"); flush(); _exit(1); }
+void die_sys() { out("421 unable to read system user database (#4.3.0)\r\n"); flush(); _exit(1); }
 /* rbl: start */
 /*
 void die_dnsbl(arg)
@@ -448,6 +457,8 @@ void setup()
   if (x) { scan_ulong(x,&u); rejnsmf = u; }
   else if (control_readint(&rejnsmf,"control/rejectnullsenders") == -1) die_control();
 /* rejectnullsenders: end */
+
+  realrcptto_init();
  
   if (control_readint(&databytes,"control/databytes") == -1) die_control();
   x = env_get("DATABYTES");
@@ -1279,6 +1290,7 @@ void smtp_mail(arg) char *arg;
   if (!stralloc_copys(&rcptto,"")) die_nomem();
   if (!stralloc_copys(&mailfrom,addr.s)) die_nomem();
   if (!stralloc_0(&mailfrom)) die_nomem();
+  realrcptto_start();
 
   flagbarfspf = 0;
   if (spfbehavior && !relayclient)
@@ -1405,7 +1417,12 @@ void smtp_rcpt(arg) char *arg; {
   else if (spp_val == 1) {
     if (!allowed) { err_nogateway(); return; }
   }
-  
+  if (!realrcptto(addr.s)) {
+    qlogenvelope("rejected", "nomailbox", "", "550");
+    out("550 sorry, no mailbox here by that name. (#5.1.1)\r\n");
+    return;
+  }
+
 /* qregex: start */
   if (spp_val == 1) {
     if (brtlimit && (brtcount >= brtlimit)) {
@@ -1772,7 +1789,6 @@ void spfauthenticated()
   if (!env_put2("QMAILAUTHENTICATED",auth_spf.s)) die_nomem();
 }
 
-
 /* rbl: start */
 /*
 int dnsblcheck()
@@ -1838,6 +1854,7 @@ void smtp_data(arg) char *arg; {
 
   if (!seenmail) { err_wantmail(); return; }
   if (!rcptto.len) { err_wantrcpt(); return; }
+  if (realrcptto_deny()) { out("554 sorry, no mailbox here by that name. (#5.1.1)\r\n"); return; }
   envelopepos = 4;
   if (!spp_data()) return;
   seenmail = 0;
