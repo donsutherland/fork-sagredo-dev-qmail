@@ -214,7 +214,7 @@ int search_in_file(char *str) {
 
   // get the qmail dir as the home dir of user 'qmaild'
   struct passwd* pw = getpwnam("qmaild");
-  if (pw == nullptr) return -2;
+  if (pw == NULL) return -2;
 
   snprintf(my_file, 256, "%s/control/moreipme", pw->pw_dir);
   if ((fp = fopen(my_file, "r")) == NULL) return my_exit(-1, fp);
